@@ -4,20 +4,29 @@
 # Requires HandBrakeCLI installed and in PATH
 # Requires PowerShell 5.1 or later
 
-# --- CONFIGURATION ---
-$handbrake = "C:\HandBrakeCLI\HandBrakeCLI.exe"   # Path to HandBrakeCLI.exe
-$inputDir = "C:\Input"                            # Folder with original MP4s
-$outputDir = "C:\Output"                          # Folder for compressed MP4s
-$timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$logFile = "$outputDir\compression_log_$timestamp.txt"
-$logData = @()
+param(
+    [Parameter(Mandatory = $true)][string]$handbrake,
+    [Parameter(Mandatory = $true)][string]$inputDir,
+    [Parameter(Mandatory = $true)][string]$outputDir
+)
 
-# Create output dir if it doesn't exist
+# --- VALIDATION ---
+if (!(Test-Path $handbrake)) {
+    Write-Error "HandBrakeCLI not found at path: $handbrake"
+    exit 1
+}
+if (!(Test-Path $inputDir)) {
+    Write-Error "Input folder does not exist: $inputDir"
+    exit 1
+}
 if (!(Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir | Out-Null
 }
 
-# Get all MP4 files to process
+$timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+$logFile = "$outputDir\compression_log_$timestamp.txt"
+$logData = @()
+
 $files = Get-ChildItem -Path $inputDir -Filter *.mp4
 $total = $files.Count
 $count = 0
@@ -30,7 +39,6 @@ foreach ($file in $files) {
     $outputFile = Join-Path $outputDir $file.Name
     $count++
 
-    # Skip file if it already exists
     if (Test-Path $outputFile) {
         Write-Host "[$count / $total] Skipping already compressed: $($file.Name)" -ForegroundColor Yellow
         continue
@@ -38,19 +46,15 @@ foreach ($file in $files) {
 
     Write-Host "[$count / $total] Compressing: $($file.Name)" -ForegroundColor Cyan
 
-    # Start timer
     $fileStart = Get-Date
 
-    # Run HandBrakeCLI
     & $handbrake -i "$inputFile" -o "$outputFile" `
         -e x264 -q 20 --encoder-preset slow -f mp4 -a 1 -E copy -B 160
 
-    # File size info
     $origSize = [Math]::Round((Get-Item $inputFile).Length / 1GB, 2)
     $newSize  = [Math]::Round((Get-Item $outputFile).Length / 1GB, 2)
     $saved    = [Math]::Round($origSize - $newSize, 2)
 
-    # Time tracking
     $elapsed = (Get-Date) - $fileStart
     $avgTime = (($elapsed.TotalSeconds) * $count) / $count
     $remaining = [TimeSpan]::FromSeconds($avgTime * ($total - $count))
@@ -58,7 +62,6 @@ foreach ($file in $files) {
     Write-Host "    ⏱️ Time: $($elapsed.ToString("mm\:ss")) | Remaining: $($remaining.ToString("hh\:mm\:ss"))"
     Write-Host "    📦 Saved: $saved GB"
 
-    # Append to log array
     $logData += [PSCustomObject]@{
         Filename     = $file.Name
         OriginalGB   = $origSize
@@ -67,11 +70,10 @@ foreach ($file in $files) {
     }
 }
 
-# Sort log by largest savings
 $logData = $logData | Sort-Object -Property SavedGB -Descending
 
-# Write to log file
 "Compression Log - $timestamp" | Out-File $logFile
+"HandBrakeCLI Path: $handbrake" >> $logFile
 "Original Folder: $inputDir" >> $logFile
 "Output Folder:   $outputDir" >> $logFile
 "" >> $logFile
