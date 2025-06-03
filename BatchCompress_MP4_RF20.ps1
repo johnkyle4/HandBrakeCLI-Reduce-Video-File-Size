@@ -10,7 +10,6 @@ param(
     [Parameter(Mandatory = $true)][string]$outputDir
 )
 
-# --- VALIDATION ---
 if (!(Test-Path $handbrake)) {
     Write-Error "HandBrakeCLI not found at path: $handbrake"
     exit 1
@@ -24,43 +23,40 @@ if (!(Test-Path $outputDir)) {
 }
 
 $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-$logFile = "$outputDir\compression_log_$timestamp.txt"
-$logData = @()
+$logFile   = "$outputDir\compression_log_$timestamp.txt"
+$logData   = @()
 
-$files = Get-ChildItem -Path $inputDir -Filter *.mp4
-$total = $files.Count
-$count = 0
+$files     = Get-ChildItem -Path $inputDir -Filter *.mp4
+$total     = $files.Count
+$count     = 0
 $startTime = Get-Date
 
-Write-Host "`n🎬 Starting batch compression of $total file(s)...`n"
+Write-Host "Starting compression of $total file(s)..."
 
 foreach ($file in $files) {
-    $inputFile = $file.FullName
-    $outputFile = Join-Path $outputDir $file.Name
     $count++
+    $inputFile  = $file.FullName
+    $outputFile = Join-Path $outputDir $file.Name
 
     if (Test-Path $outputFile) {
-        Write-Host "[$count / $total] Skipping already compressed: $($file.Name)" -ForegroundColor Yellow
+        Write-Host "[$count/$total] Skipping already compressed: $($file.Name)"
         continue
     }
 
-    Write-Host "[$count / $total] Compressing: $($file.Name)" -ForegroundColor Cyan
-
+    Write-Host "[$count/$total] Compressing: $($file.Name)"
     $fileStart = Get-Date
 
-    & $handbrake -i "$inputFile" -o "$outputFile" `
-        -e x264 -q 20 --encoder-preset slow -f mp4 -a 1 -E copy -B 160
+    & $handbrake -i $inputFile -o $outputFile -e x264 -q 20 --encoder-preset slow -f mp4 -a 1 -E copy -B 160
 
     $origSize = [Math]::Round((Get-Item $inputFile).Length / 1GB, 2)
     $newSize  = [Math]::Round((Get-Item $outputFile).Length / 1GB, 2)
     $saved    = [Math]::Round($origSize - $newSize, 2)
 
-    $elapsed = (Get-Date) - $fileStart
-    $avgTime = (($elapsed.TotalSeconds) * $count) / $count
-    $remaining = [TimeSpan]::FromSeconds($avgTime * ($total - $count))
+    $elapsed   = (Get-Date) - $fileStart
+    $remaining = [TimeSpan]::FromSeconds($elapsed.TotalSeconds * ($total - $count))
 
-    Write-Host "    ⏱️ Time: $($elapsed.ToString("mm\:ss")) | Remaining: $($remaining.ToString("hh\:mm\:ss"))"
-    Write-Host "    📦 Saved: $saved GB"
+    Write-Host "    Time: $($elapsed.ToString('mm\:ss')) | Remaining: $($remaining.ToString('hh\:mm\:ss'))"
+    Write-Host "    Saved: $saved GB"
 
     $logData += [PSCustomObject]@{
         Filename     = $file.Name
@@ -70,18 +66,21 @@ foreach ($file in $files) {
     }
 }
 
-$logData = $logData | Sort-Object -Property SavedGB -Descending
+# End of foreach loop
+
+# Sort and write log
+$logData = $logData | Sort-Object SavedGB -Descending
 
 "Compression Log - $timestamp" | Out-File $logFile
 "HandBrakeCLI Path: $handbrake" >> $logFile
-"Original Folder: $inputDir" >> $logFile
-"Output Folder:   $outputDir" >> $logFile
-"" >> $logFile
+"Original Folder: $inputDir"          >> $logFile
+"Output Folder:   $outputDir"        >> $logFile
+""                                    >> $logFile
 
 $logData | ForEach-Object {
     "$($_.Filename)`tOriginal: $($_.OriginalGB) GB`tCompressed: $($_.CompressedGB) GB`tSaved: $($_.SavedGB) GB"
 } >> $logFile
 
 $totalElapsed = (Get-Date) - $startTime
-Write-Host "`n✅ All done in $($totalElapsed.ToString("hh\:mm\:ss"))"
-Write-Host "📝 Log saved to: $logFile" -ForegroundColor Green
+Write-Host "All done in $($totalElapsed.ToString('hh\:mm\:ss'))"
+Write-Host "Log saved to: $logFile"
